@@ -1,0 +1,213 @@
+
+---
+title: "logsAnalysiswithSparkRandSparklyR"
+output:
+  html_document:
+    toc: true
+---
+
+##3.1 Log Analysis with SparkR
+
+```{r}
+library(SparkR)
+library(stringr)
+file_location = "/FileStore/tables/NASA_access_log_Jul95.gz"
+file_location = "/FileStore/tables/NASA_access_log_Aug95.gz"
+# Load the SparkR library
+
+
+# Initiate a SparkR session
+sparkR.session()
+sc <- sparkR.session()
+sqlContext <- sparkRSQL.init(sc)
+df <- read.text(sqlContext,"/FileStore/tables/NASA_access_log_Jul95.gz")
+
+#df=SparkR::select(df, "value")
+#head(SparkR::collect(df))
+#m=regexp_extract(df$value,'\\\\S+',1)
+
+a=df %>% 
+  withColumn('host', regexp_extract(df$value, '^(\\S+)', 1)) %>%
+  withColumn('timestamp', regexp_extract(df$value, "((\\S+ -\\d{4}))", 2)) %>%
+  withColumn('path', regexp_extract(df$value, '(\\"\\w+\\s+([^\\s]+)\\s+HTTP.*")', 2))  %>%
+  withColumn('status', regexp_extract(df$value, '(^.*"\\s+([^\\s]+))', 2)) %>%
+  withColumn('content_size', regexp_extract(df$value, '(^.*\\s+(\\d+)$)', 2))
+#b=a%>% select(host,timestamp,path,status,content_type)
+head(SparkR::collect(a),10)
+
+```
+
+##3.11 Compute count of hosts
+
+```{r}
+c <- SparkR::select(a,a$host)
+df=SparkR::summarize(SparkR::groupBy(c, a$host), noHosts = count(a$host))
+df1 =head(arrange(df,desc(df$noHosts)),10)
+head(df1)
+```
+
+##3.12 Plot count of hosts
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df1, aes(x=host, y=noHosts,fill=host)) +   geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Host') + ylab('Count')
+p
+```
+
+##3.13 Compute count of HTTP requests
+
+```{r}
+library(SparkR)
+c <- SparkR::select(a,a$path)
+df=SparkR::summarize(SparkR::groupBy(c, a$path), numRequest = count(a$path))
+df1=head(df)
+```
+
+##3.14 Plot count of HTTP Requests
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df1, aes(x=path, y=numRequest,fill=path)) +   geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))+ xlab('Path') + ylab('Count')
+p
+```
+
+##3.15  Compute count of HTTP Response status
+
+```{r}
+library(SparkR)
+c <- SparkR::select(a,a$status)
+df=SparkR::summarize(SparkR::groupBy(c, a$status), numStatus = count(a$status))
+df1=head(df)
+
+```
+
+##3.16 Plot count of HTTP Response status
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df1, aes(x=status, y=numStatus,fill=status)) +   geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Status') + ylab('Count')
+p
+```
+
+##3.17 Compute count of content size
+
+```{r}
+library(SparkR)
+c <- SparkR::select(a,a$content_size)
+df=SparkR::summarize(SparkR::groupBy(c, a$content_size), numContentSize = count(a$content_size))
+df1=head(df)
+df1
+```
+
+## 3.16 Plot count of content sizes
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df1, aes(x=content_size, y=numContentSize,fill=content_size)) +   geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Content Size') + ylab('Count')
+p
+
+```
+
+##3.21 Log Analysis with SparklyR
+
+```{r}
+install.packages("sparklyr")
+library(sparklyr)
+library(dplyr)
+library(stringr)
+#sc <- spark_connect(master = "local", version = "2.1.0")
+sc <- spark_connect(method = "databricks")
+sdf <-spark_read_text(sc, name="df", path = "/FileStore/tables/NASA_access_log*.gz")
+sdf
+```
+
+
+```{r}
+#install.packages("sparklyr")
+library(sparklyr)
+library(dplyr)
+library(stringr)
+#sc <- spark_connect(master = "local", version = "2.1.0")
+sc <- spark_connect(method = "databricks")
+sdf <-spark_read_text(sc, name="df", path = "/FileStore/tables/NASA_access_log*.gz")
+sdf <- sdf %>% mutate(host = regexp_extract(line, '^(\\\\S+)',1)) %>% 
+               mutate(timestamp = regexp_extract(line, '((\\\\S+ -\\\\d{4}))',2)) %>%
+               mutate(path = regexp_extract(line, '(\\\\"\\\\w+\\\\s+([^\\\\s]+)\\\\s+HTTP.*")',2)) %>%
+               mutate(status = regexp_extract(line, '(^.*"\\\\s+([^\\\\s]+))',2)) %>%
+               mutate(content_size = regexp_extract(line, '(^.*\\\\s+(\\\\d+)$)',2))
+
+```
+
+##3.22 Compute count of Hosts
+
+```{r}
+df <- sdf %>% select(host,timestamp,path,status,content_size)
+df1 <- df %>% select(host) %>% group_by(host) %>% summarise(noHosts=n()) %>% arrange(desc(noHosts))
+df2 <-head(df1,10)
+```
+
+##3.23 Plot count of hosts
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df2, aes(x=host, y=noHosts,fill=host)) +   geom_bar(stat="identity")+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Host') + ylab('Count')
+p
+
+```
+
+##3.24 Compute count of paths
+
+```{r}
+df <- sdf %>% select(host,timestamp,path,status,content_size)
+df1 <- df %>% select(path) %>% group_by(path) %>% summarise(noPaths=n()) %>% arrange(desc(noPaths))
+df2 <-head(df1,10)
+df2
+```
+
+##3.25 Plot count of Paths
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df2, aes(x=path, y=noPaths,fill=path)) +   geom_bar(stat="identity")+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Path') + ylab('Count')
+p
+```
+
+##3.26 Compute count of status
+
+```{r}
+df <- sdf %>% select(host,timestamp,path,status,content_size)
+df1 <- df %>% select(status) %>% group_by(status) %>% summarise(noStatus=n()) %>% arrange(desc(noStatus))
+df2 <-head(df1,10)
+df2
+```
+
+##3.27 Plot count of status
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df2, aes(x=status, y=noStatus,fill=status)) +   geom_bar(stat="identity")+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Status') + ylab('Count')
+p
+```
+
+##3.28 Compute count of content_size
+
+```{r}
+df <- sdf %>% select(host,timestamp,path,status,content_size)
+df1 <- df %>% select(content_size) %>% group_by(content_size) %>% summarise(noContentSize=n()) %>% arrange(desc(noContentSize))
+df2 <-head(df1,10)
+df2
+```
+
+##3.29 Plot count of content_size
+
+```{r}
+library(ggplot2)
+p <-ggplot(data=df2, aes(x=content_size, y=noContentSize,fill=content_size)) +   geom_bar(stat="identity")+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab('Content size') + ylab('Count')
+p
+```
+
+
+```{r}
+
+```
+
